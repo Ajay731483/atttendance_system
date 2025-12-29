@@ -4,7 +4,16 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] != 'teacher') header('Locatio
 require 'config.php';
 
 $message = '';
-$teacher_id = $pdo->query("SELECT id FROM teachers WHERE user_id = {$_SESSION['user_id']}")->fetch()['id'];
+// Get teacher id from session (use prepared statement and validate)
+$stmt = $pdo->prepare("SELECT id FROM teachers WHERE user_id = ?");
+$stmt->execute([$_SESSION['user_id']]);
+$row = $stmt->fetch();
+if (!$row) {
+    // no teacher record found for this user
+    header('Location: login.php');
+    exit;
+}
+$teacher_id = $row['id'];
 
 // Fetch assigned subjects/classes
 $assignments = $pdo->query("SELECT ts.id, s.name AS subject, c.name AS class FROM teacher_subjects ts JOIN subjects s ON ts.subject_id = s.id JOIN classes c ON ts.class_id = c.id WHERE ts.teacher_id = $teacher_id")->fetchAll();
@@ -15,8 +24,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $student_id = $_POST['student_id'];
         $date = $_POST['date'];
         $status = $_POST['status'];
-        $subject_id = $pdo->query("SELECT subject_id FROM teacher_subjects WHERE id = $assignment_id")->fetch()['subject_id'];
-        $pdo->prepare("INSERT INTO attendance (student_id, subject_id, date, status) VALUES (?, ?, ?, ?)")->execute([$student_id, $subject_id, $date, $status]);
+        $stmt = $pdo->prepare("SELECT subject_id FROM teacher_subjects WHERE id = ?");
+        $stmt->execute([$assignment_id]);
+        $sub = $stmt->fetch();
+        $subject_id = $sub ? $sub['subject_id'] : null;
+        if ($subject_id) {
+            $pdo->prepare("INSERT INTO attendance (student_id, subject_id, date, status) VALUES (?, ?, ?, ?)")->execute([$student_id, $subject_id, $date, $status]);
+            $message = "Attendance added.";
+        } else {
+            $message = "Invalid assignment selected.";
+        }
         $message = "Attendance added.";
     } elseif (isset($_POST['add_marks'])) {
         $assignment_id = $_POST['assignment_id'];
@@ -24,9 +41,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $exam_type = $_POST['exam_type'];
         $marks = $_POST['marks'];
         $total_marks = $_POST['total_marks'];
-        $subject_id = $pdo->query("SELECT subject_id FROM teacher_subjects WHERE id = $assignment_id")->fetch()['subject_id'];
-        $pdo->prepare("INSERT INTO marks (student_id, subject_id, exam_type, marks, total_marks) VALUES (?, ?, ?, ?, ?)")->execute([$student_id, $subject_id, $exam_type, $marks, $total_marks]);
-        $message = "Marks added.";
+        $stmt = $pdo->prepare("SELECT subject_id FROM teacher_subjects WHERE id = ?");
+        $stmt->execute([$assignment_id]);
+        $sub = $stmt->fetch();
+        $subject_id = $sub ? $sub['subject_id'] : null;
+        if ($subject_id) {
+            $pdo->prepare("INSERT INTO marks (student_id, subject_id, exam_type, marks, total_marks) VALUES (?, ?, ?, ?, ?)")->execute([$student_id, $subject_id, $exam_type, $marks, $total_marks]);
+            $message = "Marks added.";
+        } else {
+            $message = "Invalid assignment selected.";
+        }
     }
 }
 // ... (existing code above)
@@ -39,10 +63,21 @@ if (isset($_GET['report'])) {
     $end_date = isset($_GET['end_date']) ? $_GET['end_date'] : null;
 
     if ($report_type == 'attendance' && $assignment_id) {
-        $subject_id = $pdo->query("SELECT subject_id FROM teacher_subjects WHERE id = $assignment_id AND teacher_id = $teacher_id")->fetch()['subject_id'];
-        $query = "SELECT u.username, a.date, a.status FROM attendance a JOIN students st ON a.student_id = st.id JOIN users u ON st.user_id = u.id WHERE a.subject_id = ? AND a.date BETWEEN ? AND ?";
-        $stmt = $pdo->prepare($query);
-        $stmt->execute([$subject_id, $start_date, $end_date]);
+        $stmt = $pdo->prepare("SELECT subject_id FROM teacher_subjects WHERE id = ? AND teacher_id = ?");
+        $stmt->execute([$assignment_id, $teacher_id]);
+        $sub = $stmt->fetch();
+        if ($sub) {
+            $subject_id = $sub['subject_id'];
+            $query = "SELECT u.username, a.date, a.status FROM attendance a JOIN students st ON a.student_id = st.id JOIN users u ON st.user_id = u.id WHERE a.subject_id = ? AND a.date BETWEEN ? AND ?";
+            $stmt2 = $pdo->prepare($query);
+            $stmt2->execute([$subject_id, $start_date, $end_date]);
+            $data = $stmt2->fetchAll();
+            echo "<h3>Attendance Report</h3><table><tr><th>Student</th><th>Date</th><th>Status</th></tr>";
+            foreach ($data as $row) echo "<tr><td>{$row['username']}</td><td>{$row['date']}</td><td>{$row['status']}</td></tr>";
+            echo "</table>";
+        } else {
+            echo "<p>Invalid assignment or permission denied.</p>";
+        }
         $data = $stmt->fetchAll();
         echo "<h3>Attendance Report</h3><table><tr><th>Student</th><th>Date</th><th>Status</th></tr>";
         foreach ($data as $row) echo "<tr><td>{$row['username']}</td><td>{$row['date']}</td><td>{$row['status']}</td></tr>";
@@ -50,9 +85,9 @@ if (isset($_GET['report'])) {
     } elseif ($report_type == 'marks' && $assignment_id) {
         $subject_id = $pdo->query("SELECT subject_id FROM teacher_subjects WHERE id = $assignment_id AND teacher_id = $teacher_id")->fetch()['subject_id'];
         $query = "SELECT u.username, m.exam_type, m.marks, m.total_marks FROM marks m JOIN students st ON m.student_id = st.id JOIN users u ON st.user_id = u.id WHERE m.subject_id = ?";
-        $stmt = $pdo->prepare($query);
-        $stmt->execute([$subject_id]);
-        $data = $stmt->fetchAll();
+    $stmt = $pdo->prepare($query);
+    $stmt->execute([$subject_id]);
+    $data = $stmt->fetchAll();
         echo "<h3>Marks Report</h3><table><tr><th>Student</th><th>Exam Type</th><th>Marks</th><th>Total</th><th>Percentage</th></tr>";
         foreach ($data as $row) {
             $percentage = $row['total_marks'] > 0 ? round(($row['marks'] / $row['total_marks']) * 100, 2) : 0;

@@ -73,5 +73,5 @@ CREATE TABLE marks (
 );
 
 -- Insert a default admin user (username: admin, password: admin123)
-INSERT INTO users (username, password, role, email) VALUES ('admin', 'admin123', 'admin', 'admin@gmail.com');
--- Note: Replace with actual hash for 'admin123' using password_hash('admin123', PASSWORD_DEFAULT);
+-- NOTE: store hashed passwords. The following uses a bcrypt hash for 'admin123'.
+INSERT INTO users (username, password, role, email) VALUES ('admin', '$2y$10$AgQxcivuvIjxrEPWAMvsMuKyRN79SptH91KGjUxPPk5I3.x7BoXPu', 'admin', 'admin@gmail.com');

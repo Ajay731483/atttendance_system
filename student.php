@@ -3,19 +3,37 @@ session_start();
 if (!isset($_SESSION['role']) || $_SESSION['role'] != 'student') header('Location: login.php');
 require 'config.php';
 
-$student_id = $pdo->query("SELECT id FROM students WHERE user_id = {$_SESSION['user_id']}")->fetch()['id'];
+// Get student id from session using prepared statement
+$stmt = $pdo->prepare("SELECT id FROM students WHERE user_id = ?");
+$stmt->execute([$_SESSION['user_id']]);
+$row = $stmt->fetch();
+if (!$row) {
+    header('Location: login.php');
+    exit;
+}
+$student_id = $row['id'];
 
 // Fetch attendance
-$attendance = $pdo->query("SELECT a.date, a.status, s.name AS subject FROM attendance a JOIN subjects s ON a.subject_id = s.id WHERE a.student_id = $student_id ORDER BY a.date DESC")->fetchAll();
+// Fetch attendance
+$stmt = $pdo->prepare("SELECT a.date, a.status, s.name AS subject FROM attendance a JOIN subjects s ON a.subject_id = s.id WHERE a.student_id = ? ORDER BY a.date DESC");
+$stmt->execute([$student_id]);
+$attendance = $stmt->fetchAll();
 
 // Fetch marks
-$marks = $pdo->query("SELECT m.exam_type, m.marks, m.total_marks, s.name AS subject FROM marks m JOIN subjects s ON m.subject_id = s.id WHERE m.student_id = $student_id ORDER BY m.exam_type")->fetchAll();
+$stmt2 = $pdo->prepare("SELECT m.exam_type, m.marks, m.total_marks, s.name AS subject FROM marks m JOIN subjects s ON m.subject_id = s.id WHERE m.student_id = ? ORDER BY m.exam_type");
+$stmt2->execute([$student_id]);
+$marks = $stmt2->fetchAll();
 
 // ... (existing code above)
 
 // Reports Section
-$attendance_summary = $pdo->query("SELECT s.name AS subject, COUNT(CASE WHEN a.status='present' THEN 1 END) AS present, COUNT(a.id) AS total FROM attendance a JOIN subjects s ON a.subject_id = s.id WHERE a.student_id = $student_id GROUP BY s.id")->fetchAll();
-$marks_summary = $pdo->query("SELECT s.name AS subject, AVG(m.marks / m.total_marks * 100) AS avg_percentage FROM marks m JOIN subjects s ON m.subject_id = s.id WHERE m.student_id = $student_id GROUP BY s.id")->fetchAll();
+// Summaries
+$stmt3 = $pdo->prepare("SELECT s.name AS subject, COUNT(CASE WHEN a.status='present' THEN 1 END) AS present, COUNT(a.id) AS total FROM attendance a JOIN subjects s ON a.subject_id = s.id WHERE a.student_id = ? GROUP BY s.id");
+$stmt3->execute([$student_id]);
+$attendance_summary = $stmt3->fetchAll();
+$stmt4 = $pdo->prepare("SELECT s.name AS subject, AVG(m.marks / m.total_marks * 100) AS avg_percentage FROM marks m JOIN subjects s ON m.subject_id = s.id WHERE m.student_id = ? GROUP BY s.id");
+$stmt4->execute([$student_id]);
+$marks_summary = $stmt4->fetchAll();
 
 echo "<h3>Attendance Summary by Subject</h3><table><tr><th>Subject</th><th>Present</th><th>Total</th><th>Percentage</th></tr>";
 foreach ($attendance_summary as $row) {
